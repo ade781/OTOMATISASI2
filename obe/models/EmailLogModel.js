@@ -4,19 +4,29 @@ import db from '../config/db.js';
  * Save sent email log
  */
 export const saveEmailLog = (logData, callback) => {
-    const { user_id, recipient_email, recipient_name, subject, body, status, message_id, thread_id, attachment_name, error_message } = logData;
+    const { user_id, recipient_email, recipient_name, subject, body, status, message_id, thread_id, attachment_name, error_message, badan_publik_id } = logData;
 
     const query = `
         INSERT INTO email_logs 
-        (user_id, recipient_email, recipient_name, subject, body, status, message_id, thread_id, attachment_name, error_message)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (user_id, recipient_email, recipient_name, subject, body, status, message_id, thread_id, attachment_name, error_message, badan_publik_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     db.query(
         query,
-        [user_id, recipient_email, recipient_name, subject, body, status || 'sent', message_id, thread_id, attachment_name, error_message],
+        [user_id, recipient_email, recipient_name, subject, body, status || 'sent', message_id, thread_id, attachment_name, error_message, badan_publik_id || null],
         callback
     );
+};
+
+export const getSentLogsByUser = (user_id, callback) => {
+    const query = `
+        SELECT id, recipient_email, recipient_name, message_id, thread_id, user_id, badan_publik_id
+        FROM email_logs
+        WHERE user_id = ? AND message_id IS NOT NULL
+    `;
+
+    db.query(query, [user_id], callback);
 };
 
 /**

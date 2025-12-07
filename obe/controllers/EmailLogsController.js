@@ -1,8 +1,15 @@
-import { createEmailLogsSchema, ensureSentCountColumn } from "../models/EmailLogsSchemaModel.js";
+import {
+    createEmailLogsSchema,
+    ensureSentCountColumn,
+    ensureBadanPublikIdColumn,
+} from "../models/EmailLogsSchemaModel.js";
+import { createEmailRepliesSchema } from "../models/EmailRepliesSchemaModel.js";
 
 export const ensureEmailLogsSchema = async () => {
     await createEmailLogsSchema();
     await ensureSentCountColumn();
+    await ensureBadanPublikIdColumn();
+    await createEmailRepliesSchema();
 };
 
 export const setupEmailLogsSchema = async (req, res) => {

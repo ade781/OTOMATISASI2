@@ -14,8 +14,6 @@ import { ensureEmailLogsSchema } from "./controllers/EmailLogsController.js";
 
 const app = express();
 
-ensureEmailLogsSchema().catch((err) => console.error("Email logs schema bootstrap error:", err));
-
 // Middleware
 app.use(cors()); // Izinkan frontend mengakses backend
 app.use(express.json());
@@ -33,6 +31,12 @@ app.use("/api/email-logs", EmailLogsRoute);
 
 const PORT = process.env.PORT || 8080;
 
-app.listen(PORT, () => {
+// Start server first, initialize schema in background
+const server = app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
+// Initialize email logs schema in the background (don't block server startup)
+ensureEmailLogsSchema()
+  .then(() => console.log("Email logs schema initialized"))
+  .catch((err) => console.error("Email logs schema error:", err));

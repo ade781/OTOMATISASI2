@@ -1,12 +1,18 @@
-import { getRepliesByBpId } from "../models/ReplyModel.js";
 import nodemailer from "nodemailer";
 import { getSettings } from "../models/SettingsModel.js";
+import { getRepliesByBpId } from "../models/ReplyModel.js";
 
 export const listReplies = (req, res) => {
     const bpId = req.params.id;
+    if (!bpId) return res.status(400).json({ message: "Badan publik ID diperlukan" });
+
     getRepliesByBpId(bpId, (err, rows) => {
-        if (err) return res.status(500).json({ message: "Database error" });
-        res.json({ data: rows });
+        if (err) {
+            console.error("List replies error:", err);
+            return res.status(500).json({ success: false, message: "Database error", error: err.message });
+        }
+
+        res.json({ success: true, data: rows });
     });
 };
 

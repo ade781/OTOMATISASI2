@@ -83,7 +83,8 @@ ${nama_pemohon}
                     message_id: info.messageId,
                     thread_id: info.messageId,
                     attachment_name: ktpFile.originalname,
-                    error_message: null
+                    error_message: null,
+                    badan_publik_id: target.id
                 }, (err) => {
                     if (err) console.error('Error logging email:', err);
                 });
@@ -112,7 +113,8 @@ ${nama_pemohon}
                     message_id: null,
                     thread_id: null,
                     attachment_name: ktpFile.originalname,
-                    error_message: error.message
+                    error_message: error.message,
+                    badan_publik_id: target.id
                 }, (err) => {
                     if (err) console.error('Error logging failed email:', err);
                 });

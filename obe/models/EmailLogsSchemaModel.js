@@ -10,6 +10,7 @@ export const createEmailLogsSchema = () =>
         recipient_name VARCHAR(255),
         subject VARCHAR(500),
         body TEXT,
+                badan_publik_id INT,
         status ENUM('sent', 'failed', 'replied', 'pending') DEFAULT 'sent',
         sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         message_id VARCHAR(255),
@@ -18,6 +19,7 @@ export const createEmailLogsSchema = () =>
         error_message TEXT,
         attachment_name VARCHAR(255),
         INDEX idx_user_id (user_id),
+                INDEX idx_bp_id (badan_publik_id),
         INDEX idx_recipient_email (recipient_email),
         INDEX idx_sent_at (sent_at)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -34,6 +36,19 @@ export const ensureSentCountColumn = () =>
         const sql = `
       ALTER TABLE badan_publik 
       ADD COLUMN IF NOT EXISTS sent_count INT DEFAULT 0;
+    `;
+
+        db.query(sql, (err, result) => {
+            if (err) return reject(err);
+            resolve(result);
+        });
+    });
+
+export const ensureBadanPublikIdColumn = () =>
+    new Promise((resolve, reject) => {
+        const sql = `
+      ALTER TABLE email_logs 
+      ADD COLUMN IF NOT EXISTS badan_publik_id INT DEFAULT NULL;
     `;
 
         db.query(sql, (err, result) => {

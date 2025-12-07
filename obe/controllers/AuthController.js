@@ -8,7 +8,10 @@ export const login = (req, res) => {
   }
 
   findUser(username, (err, user) => {
-    if (err) return res.status(500).json({ message: "Server error" });
+    if (err) {
+      console.error("[AuthController] findUser error:", err);
+      return res.status(500).json({ message: "Server error", error: err.message });
+    }
 
     if (!user) {
       return res.status(404).json({ message: "User tidak ditemukan" });

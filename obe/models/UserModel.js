@@ -16,9 +16,16 @@ const User = db.define(
 );
 
 export const findUser = (username, callback) => {
+  console.log("[UserModel] findUser called with username:", username);
   User.findOne({ where: { username } })
-    .then((user) => callback(null, user))
-    .catch((err) => callback(err, null));
+    .then((user) => {
+      console.log("[UserModel] findUser result:", user ? "user found" : "user not found");
+      callback(null, user);
+    })
+    .catch((err) => {
+      console.error("[UserModel] findUser error:", err);
+      callback(err, null);
+    });
 };
 
 export default User;

@@ -1,7 +1,7 @@
 import User from "../models/UserModel.js";
 
 const ensureAdmin = async () => {
-    await User.sync();
+    await User.sync({ alter: true });
 
     const [user, created] = await User.findOrCreate({
         where: { username: "admin" },

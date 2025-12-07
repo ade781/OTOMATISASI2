@@ -262,3 +262,4 @@ export const markEmailAsRead = async (req, res) => {
         });
     }
 };
+
