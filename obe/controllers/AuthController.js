@@ -18,11 +18,15 @@ export const login = (req, res) => {
       return res.status(401).json({ message: "Password salah" });
     }
 
+    // Tentukan role: pakai kolom role jika ada, fallback ke admin/user berdasarkan username.
+    const role = user.role || (user.username === "admin" ? "admin" : "user");
+
     res.json({
       message: "Login berhasil",
       user: {
         id: user.id,
-        username: user.username
+        username: user.username,
+        role
       }
     });
   });
