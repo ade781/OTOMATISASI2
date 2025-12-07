@@ -8,7 +8,7 @@ app.use(express.json());
 app.use("/auth", AuthRoute);
 app.use("/badan-publik", BadanPublikRoute);
 
-const PORT = process.env.PORT || 8082;
+const PORT = process.env.PORT || 8080;
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
