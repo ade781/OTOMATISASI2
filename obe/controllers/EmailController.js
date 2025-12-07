@@ -1,6 +1,8 @@
 // obe/controllers/EmailController.js
 import nodemailer from "nodemailer";
 import { getSettings } from "../models/SettingsModel.js"; // Import model
+import { saveEmailLog } from "../models/EmailLogModel.js";
+import db from "../config/db.js";
 
 export const sendBulkEmail = async (req, res) => {
     try {
@@ -62,7 +64,7 @@ Salam hormat,
 ${nama_pemohon}
         `;
 
-                await transporter.sendMail({
+                const info = await transporter.sendMail({
                     from: `"Otomatisasi PPID" <${userSettings.email_sender}>`, // Pakai email user
                     to: target.email,
                     subject: subject,
@@ -70,9 +72,51 @@ ${nama_pemohon}
                     attachments: [{ filename: ktpFile.originalname, content: ktpFile.buffer }],
                 });
 
+                // Log successful email
+                saveEmailLog({
+                    user_id,
+                    recipient_email: target.email,
+                    recipient_name: target.nama_badan_publik,
+                    subject: subject,
+                    body: bodyText,
+                    status: 'sent',
+                    message_id: info.messageId,
+                    thread_id: info.messageId,
+                    attachment_name: ktpFile.originalname,
+                    error_message: null
+                }, (err) => {
+                    if (err) console.error('Error logging email:', err);
+                });
+
+                // Increment sent_count di badan_publik
+                db.query(
+                    'UPDATE badan_publik SET sent_count = COALESCE(sent_count, 0) + 1 WHERE id = ?',
+                    [target.id],
+                    (err) => {
+                        if (err) console.error('Error updating sent_count:', err);
+                    }
+                );
+
                 successCount++;
             } catch (error) {
                 console.error(`Gagal ke ${target.nama_badan_publik}:`, error.message);
+
+                // Log failed email
+                saveEmailLog({
+                    user_id,
+                    recipient_email: target.email,
+                    recipient_name: target.nama_badan_publik,
+                    subject: subjekDokumen,
+                    body: bodyText,
+                    status: 'failed',
+                    message_id: null,
+                    thread_id: null,
+                    attachment_name: ktpFile.originalname,
+                    error_message: error.message
+                }, (err) => {
+                    if (err) console.error('Error logging failed email:', err);
+                });
+
                 failedCount++;
             }
         }

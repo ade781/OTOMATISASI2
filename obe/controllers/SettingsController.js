@@ -19,7 +19,10 @@ export const getUserSettings = (req, res) => {
     const userId = req.query.userId;
     getSettings(userId, (err, data) => {
         if (err) return res.status(500).json({ message: "Error" });
-        // Hanya kirim balik emailnya saja untuk ditampilkan di form, password jangan dikirim balik biar tidak bingung
-        res.json({ email: data ? data.email_sender : "" });
+        // Kirim email dan password untuk ditampilkan (lokal app)
+        res.json({
+            email: data ? data.email_sender : "",
+            password: data ? data.app_password : ""
+        });
     });
 };

@@ -1,7 +1,16 @@
 import express from "express";
-import { listBadanPublik } from "../controllers/BadanPublikController.js";
+import {
+    getBadanPublik,
+    createBadanPublik,
+    updateBadanPublik,
+    deleteBadanPublik
+} from "../controllers/BadanPublikController.js";
 
 const router = express.Router();
-router.get("/", listBadanPublik);
+
+router.get("/", getBadanPublik);
+router.post("/", createBadanPublik);       // Create
+router.put("/:id", updateBadanPublik);     // Update
+router.delete("/:id", deleteBadanPublik);  // Delete
 
 export default router;
