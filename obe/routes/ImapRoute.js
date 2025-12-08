@@ -1,5 +1,5 @@
 import express from "express";
-import { getInboxEmails, getEmailByUid, markEmailAsRead } from "../controllers/ImapController.js";
+import { getInboxEmails, getEmailByUid, markEmailAsRead, imapTest } from "../controllers/ImapController.js";
 import {
     refreshReplies,
     listRepliesForSentEmails,
@@ -10,6 +10,7 @@ const router = express.Router();
 
 // General IMAP helpers (optional)
 router.get("/inbox", getInboxEmails);
+router.get('/imap-test', imapTest);
 router.get("/email", getEmailByUid);
 router.post("/mark-read", markEmailAsRead);
 

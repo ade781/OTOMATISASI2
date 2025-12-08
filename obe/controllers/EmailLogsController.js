@@ -1,15 +1,10 @@
-import {
-    createEmailLogsSchema,
-    ensureSentCountColumn,
-    ensureBadanPublikIdColumn,
-} from "../models/EmailLogsSchemaModel.js";
-import { createEmailRepliesSchema } from "../models/EmailRepliesSchemaModel.js";
+// obe/controllers/EmailLogsController.js
+// All schema management is now handled by Sequelize models
+// This file is kept for backwards compatibility
 
 export const ensureEmailLogsSchema = async () => {
-    await createEmailLogsSchema();
-    await ensureSentCountColumn();
-    await ensureBadanPublikIdColumn();
-    await createEmailRepliesSchema();
+    // No-op: Models handle schema creation via db.sync()
+    return Promise.resolve();
 };
 
 export const setupEmailLogsSchema = async (req, res) => {

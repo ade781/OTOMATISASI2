@@ -1,102 +1,130 @@
-import db from '../config/db.js';
+import { DataTypes, QueryTypes } from "sequelize";
+import db from "../config/db.js";
 
-/**
- * Save sent email log
- */
+const EmailLog = db.define("email_logs", {
+    id: {
+        type: DataTypes.INTEGER,
+        autoIncrement: true,
+        primaryKey: true,
+    },
+    user_id: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+    },
+    badan_publik_id: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+    },
+    recipient_email: {
+        type: DataTypes.STRING(255),
+    },
+    recipient_name: {
+        type: DataTypes.STRING(255),
+    },
+    email_subject: {
+        type: DataTypes.STRING(500),
+    },
+    email_body: {
+        type: DataTypes.TEXT,
+    },
+    status: {
+        type: DataTypes.ENUM("pending", "sent", "failed", "replied"),
+        defaultValue: "pending",
+    },
+    sent_at: {
+        type: DataTypes.DATE,
+    },
+}, {
+    freezeTableName: true,
+    timestamps: true,
+    createdAt: "created_at",
+    updatedAt: false,
+});
+
+db.sync().then(() => console.log("✓ Database synced model or table email_logs"));
+
+// Export helper functions for controllers
 export const saveEmailLog = (logData, callback) => {
-    const { user_id, recipient_email, recipient_name, subject, body, status, message_id, thread_id, attachment_name, error_message, badan_publik_id } = logData;
-
-    const query = `
-        INSERT INTO email_logs 
-        (user_id, recipient_email, recipient_name, subject, body, status, message_id, thread_id, attachment_name, error_message, badan_publik_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `;
-
-    db.query(
-        query,
-        [user_id, recipient_email, recipient_name, subject, body, status || 'sent', message_id, thread_id, attachment_name, error_message, badan_publik_id || null],
-        callback
-    );
+    EmailLog.create(logData)
+        .then((log) => callback(null, log))
+        .catch((err) => callback(err, null));
 };
 
-export const getSentLogsByUser = (user_id, callback) => {
-    const query = `
-        SELECT id, recipient_email, recipient_name, message_id, thread_id, user_id, badan_publik_id
-        FROM email_logs
-        WHERE user_id = ? AND message_id IS NOT NULL
-    `;
+export const getEmailLogsByUser = (userId, limit = 50, offset = 0, callback) => {
+    // Handle both callback and 3-param versions
+    if (typeof offset === "function") {
+        callback = offset;
+        offset = 0;
+        limit = 50;
+    }
 
-    db.query(query, [user_id], callback);
+    EmailLog.findAll({
+        where: { user_id: userId },
+        order: [["created_at", "DESC"]],
+        limit: parseInt(limit),
+        offset: parseInt(offset),
+    })
+        .then((logs) => callback(null, logs))
+        .catch((err) => callback(err, null));
 };
 
-/**
- * Get all email logs for a user
- */
-export const getEmailLogsByUser = (user_id, limit = 50, offset = 0, callback) => {
-    const query = `
-        SELECT * FROM email_logs 
-        WHERE user_id = ? 
-        ORDER BY sent_at DESC 
-        LIMIT ? OFFSET ?
-    `;
-
-    db.query(query, [user_id, parseInt(limit), parseInt(offset)], callback);
-};
-
-/**
- * Get email log by ID
- */
 export const getEmailLogById = (id, callback) => {
-    const query = 'SELECT * FROM email_logs WHERE id = ?';
-    db.query(query, [id], callback);
+    EmailLog.findByPk(id)
+        .then((log) => callback(null, log ? [log] : []))
+        .catch((err) => callback(err, null));
 };
 
-/**
- * Update email log status
- */
-export const updateEmailLogStatus = (id, status, callback) => {
-    const query = 'UPDATE email_logs SET status = ? WHERE id = ?';
-    db.query(query, [status, id], callback);
+export const getSentLogsByUser = (userId, callback) => {
+    EmailLog.findAll({
+        where: { user_id: userId, status: "sent" },
+        order: [["sent_at", "DESC"]],
+    })
+        .then((logs) => callback(null, logs))
+        .catch((err) => callback(err, null));
 };
 
-/**
- * Mark email as replied
- */
-export const markEmailAsReplied = (id, callback) => {
-    const query = 'UPDATE email_logs SET status = ?, replied_at = NOW() WHERE id = ?';
-    db.query(query, ['replied', id], callback);
+export const updateEmailLogStatus = (logId, status, callback) => {
+    EmailLog.update(
+        { status, sent_at: new Date() },
+        { where: { id: logId } }
+    )
+        .then((result) => callback(null, result))
+        .catch((err) => callback(err, null));
 };
 
-/**
- * Get email statistics for a user
- */
-export const getEmailStats = (user_id, callback) => {
-    const query = `
-        SELECT 
-            COUNT(*) as total,
-            SUM(CASE WHEN status = 'sent' THEN 1 ELSE 0 END) as sent,
-            SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed,
-            SUM(CASE WHEN status = 'replied' THEN 1 ELSE 0 END) as replied,
-            SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending
-        FROM email_logs 
-        WHERE user_id = ?
-    `;
-
-    db.query(query, [user_id], callback);
+export const getEmailStats = (userId, callback) => {
+    db.query(
+        `
+    SELECT
+      COUNT(*) as total,
+      SUM(CASE WHEN status = 'sent' THEN 1 ELSE 0 END) as sent,
+      SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed,
+      SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
+      SUM(CASE WHEN status = 'replied' THEN 1 ELSE 0 END) as replied
+    FROM email_logs
+    WHERE user_id = ?
+  `,
+        { replacements: [userId], type: QueryTypes.SELECT }
+    )
+        .then((result) => callback(null, result))
+        .catch((err) => callback(err, null));
 };
 
-/**
- * Search email logs
- */
-export const searchEmailLogs = (user_id, searchTerm, callback) => {
-    const query = `
-        SELECT * FROM email_logs 
-        WHERE user_id = ? 
-        AND (recipient_email LIKE ? OR recipient_name LIKE ? OR subject LIKE ?)
-        ORDER BY sent_at DESC
-        LIMIT 100
-    `;
-
-    const searchPattern = `%${searchTerm}%`;
-    db.query(query, [user_id, searchPattern, searchPattern, searchPattern], callback);
+export const searchEmailLogs = (userId, query, callback) => {
+    db.query(
+        `
+    SELECT * FROM email_logs
+    WHERE user_id = ? AND (
+      recipient_email LIKE ? OR
+      recipient_name LIKE ? OR
+      email_subject LIKE ?
+    )
+    ORDER BY created_at DESC
+  `,
+        { replacements: [userId, `%${query}%`, `%${query}%`, `%${query}%`], type: QueryTypes.SELECT }
+    )
+        .then((result) => callback(null, result))
+        .catch((err) => callback(err, null));
 };
+
+export default EmailLog;

@@ -1,27 +1,60 @@
 import { DataTypes } from "sequelize";
 import db from "../config/db.js";
 
-const BadanPublik = db.define(
-    "badan_publik",
-    {
-        id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
-        nama_badan_publik: { type: DataTypes.STRING, allowNull: false },
-        kategori: { type: DataTypes.STRING },
-        website: { type: DataTypes.STRING },
-        pertanyaan: { type: DataTypes.TEXT },
-        email: { type: DataTypes.STRING },
-        status: { type: DataTypes.STRING },
-        thread_id: { type: DataTypes.STRING },
-        sent_count: { type: DataTypes.INTEGER, defaultValue: 0 },
+const BadanPublik = db.define("badan_publik", {
+    id: {
+        type: DataTypes.INTEGER,
+        autoIncrement: true,
+        primaryKey: true,
     },
-    {
-        freezeTableName: true,
-        timestamps: false,
-    }
-);
+    name: {
+        type: DataTypes.STRING(255),
+        allowNull: false,
+    },
+    email: {
+        type: DataTypes.STRING(255),
+    },
+    phone: {
+        type: DataTypes.STRING(20),
+    },
+    sent_count: {
+        type: DataTypes.INTEGER,
+        defaultValue: 0,
+    },
+}, {
+    freezeTableName: true,
+    timestamps: false,
+});
 
-export const getAllBadanPublik = (callback) => {
+db.sync().then(() => console.log("✓ Database synced model or table badan_publik"));
+
+// Export helper functions for controllers
+export const getBadanPublik = (callback) => {
     BadanPublik.findAll()
+        .then((data) => callback(null, data))
+        .catch((err) => callback(err, null));
+};
+
+export const getBadanPublikById = (id, callback) => {
+    BadanPublik.findByPk(id)
+        .then((data) => callback(null, data))
+        .catch((err) => callback(err, null));
+};
+
+export const createBadanPublik = (data, callback) => {
+    BadanPublik.create(data)
+        .then((result) => callback(null, result))
+        .catch((err) => callback(err, null));
+};
+
+export const updateBadanPublik = (id, data, callback) => {
+    BadanPublik.update(data, { where: { id } })
+        .then((result) => callback(null, result))
+        .catch((err) => callback(err, null));
+};
+
+export const deleteBadanPublik = (id, callback) => {
+    BadanPublik.destroy({ where: { id } })
         .then((result) => callback(null, result))
         .catch((err) => callback(err, null));
 };
