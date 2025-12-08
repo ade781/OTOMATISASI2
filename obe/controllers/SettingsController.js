@@ -1,5 +1,6 @@
 // obe/controllers/SettingsController.js
 import { saveSettings, getSettings } from "../models/SettingsModel.js";
+import { encrypt } from "../utils/encryption.js";
 
 export const updateEmailSettings = (req, res) => {
     const { userId, email, appPassword } = req.body;
@@ -8,8 +9,16 @@ export const updateEmailSettings = (req, res) => {
         return res.status(400).json({ message: "Data tidak lengkap" });
     }
 
-    // Langsung simpan tanpa enkripsi
-    saveSettings(userId, email, appPassword, (err, result) => {
+    // Enkripsi password sebelum disimpan
+    const encryptedPassword = encrypt(appPassword);
+
+    // Format data sesuai dengan model
+    const settingsData = {
+        email_sender: email,
+        app_password: encryptedPassword
+    };
+
+    saveSettings(userId, settingsData, (err, result) => {
         if (err) return res.status(500).json({ message: "Database error", error: err });
         res.json({ message: "Pengaturan email berhasil disimpan!" });
     });

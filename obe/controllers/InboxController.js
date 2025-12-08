@@ -1,7 +1,8 @@
 import imaps from "imap-simple";
 import { simpleParser } from "mailparser";
 import { getSettings } from "../models/SettingsModel.js";
-import { getSentLogsByUser } from "../models/EmailLogModel.js";
+import EmailLog, { getSentLogsByUser, updateEmailLogStatus } from "../models/EmailLogModel.js";
+import { decrypt } from "../utils/encryption.js";
 import {
     saveReply,
     getRepliesForUser,
@@ -9,20 +10,23 @@ import {
     getRepliesForSentEmails,
 } from "../models/ReplyModel.js";
 
-const buildImapConfig = (settings) => ({
-    imap: {
-        user: settings.email_sender,
-        // sanitize app password by removing spaces that are often present in app-password display
-        password: (settings.app_password || '').replace(/\s+/g, ''),
-        host: "imap.gmail.com",
-        port: 993,
-        tls: true,
-        tlsOptions: { rejectUnauthorized: false },
-        authTimeout: 10000,
-    },
-});
+// Helper: Build IMAP config
+const buildImapConfig = (settings) => {
+    const decryptedPassword = decrypt(settings.app_password);
+    return {
+        imap: {
+            user: settings.email_sender,
+            password: (decryptedPassword || '').replace(/\s+/g, ''), // Sanitize password
+            host: "imap.gmail.com",
+            port: 993,
+            tls: true,
+            tlsOptions: { rejectUnauthorized: false },
+            authTimeout: 10000,
+        },
+    };
+};
 
-// Helper: wrap imaps.connect with timeout to avoid long hang
+// Helper: Connect with timeout
 const connectWithTimeout = (config, timeoutMs = 20000) => {
     return Promise.race([
         imaps.connect(config),
@@ -30,10 +34,9 @@ const connectWithTimeout = (config, timeoutMs = 20000) => {
     ]);
 };
 
+// Helper: Normalize Message-ID
 const normalizeMessageId = (value) => {
     if (!value) return null;
-    const matches = value.match(/<([^>]+)>/);
-    if (matches) return matches[1];
     return value.trim();
 };
 
@@ -45,7 +48,7 @@ export const listStoredReplies = (req, res) => {
 
     getRepliesForUser(userId, (err, replies) => {
         if (err) {
-            console.error("List replies error:", err);
+            console.error("[Inbox] List replies error:", err);
             return res.status(500).json({
                 success: false,
                 message: "Gagal mengambil balasan",
@@ -53,13 +56,10 @@ export const listStoredReplies = (req, res) => {
             });
         }
 
-        res.json({ success: true, replies });
+        res.json({ success: true, replies, count: replies?.length || 0 });
     });
 };
 
-/**
- * List stored replies only for emails sent via the application
- */
 export const listRepliesForSentEmails = (req, res) => {
     const userId = req.query.user_id;
     if (!userId) {
@@ -68,7 +68,7 @@ export const listRepliesForSentEmails = (req, res) => {
 
     getRepliesForSentEmails(userId, (err, replies) => {
         if (err) {
-            console.error("List replies for sent emails error:", err);
+            console.error("[Inbox] List replies for sent emails error:", err);
             return res.status(500).json({
                 success: false,
                 message: "Gagal mengambil balasan",
@@ -76,34 +76,31 @@ export const listRepliesForSentEmails = (req, res) => {
             });
         }
 
-        res.json({ success: true, replies: replies || [] });
+        res.json({ success: true, replies: replies || [], count: replies?.length || 0 });
     });
 };
 
-// ... import bagian atas biarkan sama ...
-
 export const refreshReplies = async (req, res) => {
     const { user_id } = req.body || {};
-    console.log(`[DEBUG] Mulai refreshReplies untuk User ID: ${user_id}`);
+    console.log(`\n[INBOX] ========== REFRESH REPLIES START ==========`);
+    console.log(`[INBOX] User ID: ${user_id}`);
 
     if (!user_id) {
         return res.status(400).json({ success: false, message: "User ID diperlukan" });
     }
 
-    // Set timeout 60 detik untuk seluruh operasi
+    // Timeout safety
     const timeoutId = setTimeout(() => {
-        console.error("[DEBUG] TIMEOUT: refreshReplies melebihi 60 detik!");
         if (!res.headersSent) {
-            res.status(504).json({
-                success: false,
-                message: "Waktu koneksi timeout. Silakan coba lagi nanti.",
-            });
+            console.error("[INBOX] ❌ Timeout: Operation took too long");
+            res.status(504).json({ success: false, message: "Waktu koneksi habis" });
         }
     }, 60000);
 
+    let connection;
+
     try {
-        // 1. Ambil Settings
-        console.log("[DEBUG] Sedang mengambil settings...");
+        // 1. Get Settings
         const settings = await new Promise((resolve, reject) => {
             getSettings(user_id, (err, data) => {
                 if (err) return reject(err);
@@ -113,173 +110,129 @@ export const refreshReplies = async (req, res) => {
 
         if (!settings || !settings.email_sender || !settings.app_password) {
             clearTimeout(timeoutId);
-            console.log("[DEBUG] Settings tidak lengkap/tidak ditemukan.");
             return res.status(404).json({ success: false, message: "Pengaturan email belum lengkap" });
         }
-        console.log(`[DEBUG] Settings ditemukan untuk email: ${settings.email_sender}`);
 
-        // 2. Ambil Log Email Terkirim
-        console.log("[DEBUG] Sedang mengambil log email terkirim...");
-        const sentLogs = await new Promise((resolve, reject) => {
-            getSentLogsByUser(user_id, (err, rows) => {
-                if (err) return reject(err);
-                resolve(rows || []);
-            });
-        });
-        console.log(`[DEBUG] Ditemukan ${sentLogs.length} email terkirim di database.`);
+        // 2. Connect to IMAP
+        console.log(`[INBOX] Connecting to IMAP (${settings.email_sender})...`);
+        const config = buildImapConfig(settings);
+        connection = await connectWithTimeout(config);
+        console.log(`[INBOX] ✓ Connected`);
 
-        if (sentLogs.length === 0) {
-            clearTimeout(timeoutId);
-            return res.json({ success: true, newReplies: 0, message: "Belum ada email terkirim" });
-        }
+        await connection.openBox("INBOX");
+        console.log(`[INBOX] Inbox opened`);
 
-        // Mapping Message ID
-        const sentMap = new Map();
-        sentLogs.forEach((row) => {
-            const messageKey = normalizeMessageId(row.message_id);
-            if (messageKey) sentMap.set(messageKey, row);
-        });
+        // 3. Search for messages
+        // Fetch UNSEEN messages or messages from last 3 days
+        const delayDays = 3;
+        const date = new Date();
+        date.setDate(date.getDate() - delayDays);
+        const searchCriteria = [['SINCE', date]]; // Fetch recent emails
+        
+        const fetchOptions = {
+            bodies: ["HEADER", "TEXT", "BODY[]"],
+            markSeen: false,
+            struct: true,
+        };
 
-        // 3. Ambil Pesan yang Sudah Ada (agar tidak duplikat)
-        const existingMessages = await new Promise((resolve, reject) => {
-            getReplyMessageIdsByUser(user_id, (err, rows) => {
-                if (err) return reject(err);
-                resolve(rows || []);
-            });
-        });
-        const existingSet = new Set(existingMessages.map((row) => normalizeMessageId(row.message_id)).filter(Boolean));
-        console.log(`[DEBUG] Ada ${existingSet.size} balasan yang sudah tersimpan sebelumnya.`);
+        console.log(`[INBOX] Searching messages since ${date.toISOString()}...`);
+        const messages = await connection.search(searchCriteria, fetchOptions);
+        console.log(`[INBOX] Found ${messages.length} messages`);
 
-        // 4. Koneksi ke IMAP (Gmail)
-        let connection;
-        const savedReplies = [];
-        try {
-            console.log("[DEBUG] Mencoba connect ke IMAP Gmail... (host: imap.gmail.com)");
-            console.log(`[DEBUG] Menggunakan akun: ${settings.email_sender}`);
-            const config = buildImapConfig(settings);
-            connection = await connectWithTimeout(config, 20000);
-            console.log("[DEBUG] Berhasil connect ke IMAP!");
+        let newRepliesCount = 0;
 
-            await connection.openBox("INBOX");
-            console.log("[DEBUG] Kotak Masuk (INBOX) terbuka.");
+        // 4. Process messages
+        for (const item of messages) {
+            try {
+                const allText = item.parts.find((part) => part.which === "BODY[]") || item.parts.find((part) => part.which === "TEXT");
+                if (!allText) continue;
 
-            const fetchOptions = {
-                // Prefer BODY[] (full raw message) so simpleParser extracts header fields correctly
-                bodies: ["HEADER.FIELDS (FROM TO SUBJECT DATE MESSAGE-ID IN-REPLY-TO REFERENCES)", "TEXT", "BODY[]"],
-                markSeen: false,
-                struct: true,
-            };
+                const uid = item.attributes.uid;
+                const raw = "Imap-Id: " + uid + "\r\n" + (allText.body || "");
+                const parsed = await simpleParser(raw);
 
-            // Cari semua yang UNSEEN (Belum dibaca)
-            console.log("[DEBUG] Mencari email UNSEEN...");
-            let messages = await connection.search(["UNSEEN"], fetchOptions);
-            console.log(`[DEBUG] Ditemukan ${messages.length} email UNSEEN.`);
-            // Fallback: jika tidak ada UNSEEN, coba ambil beberapa pesan terakhir untuk debugging
-            if (!messages || messages.length === 0) {
-                console.log('[DEBUG] Tidak ada UNSEEN, mencoba ambil sedikit pesan terakhir (ALL).');
-                messages = await connection.search(['ALL'], fetchOptions);
-                console.log(`[DEBUG] Ditemukan ${messages.length} pesan dengan kriterium ALL.`);
-            }
+                // Extract headers
+                const messageId = normalizeMessageId(parsed.messageId);
+                const inReplyTo = normalizeMessageId(parsed.inReplyTo);
+                const subject = parsed.subject;
+                const fromAddress = parsed.from?.value?.[0]?.address;
+                const fromName = parsed.from?.value?.[0]?.name;
 
-            // Loop setiap pesan
-            for (const item of messages) {
-                try {
-                    // Prefer BODY[] part for full message, then fallback to TEXT
-                    const allText = item.parts.find((part) => part.which === "BODY[]") || item.parts.find((part) => part.which === "TEXT");
-                    if (!allText) {
-                        console.log(`[DEBUG] Email UID ${item.attributes.uid} tidak punya TEXT part`);
-                        continue;
-                    }
+                if (!inReplyTo) continue;
 
-                    const uid = item.attributes.uid;
-                    const raw = "Imap-Id: " + uid + "\r\n" + (allText.body || "");
-                    const parsed = await simpleParser(raw);
-                    const replyMessageId = normalizeMessageId(parsed.messageId);
+                // 5. Match with Database
+                // Find the original sent email using message_id
+                const originalEmail = await EmailLog.findOne({
+                    where: { message_id: inReplyTo }
+                });
 
-                    console.log(`[DEBUG] Memproses email UID: ${uid}, Subject: ${parsed.subject}`);
+                if (originalEmail) {
+                    console.log(`[INBOX] [MATCH] Found reply for Email ID: ${originalEmail.id}`);
 
-                    if (!replyMessageId) {
-                        console.log("[DEBUG] -- Skip: Tidak ada Message-ID");
-                        continue;
-                    }
-                    if (existingSet.has(replyMessageId)) {
-                        console.log("[DEBUG] -- Skip: Email sudah ada di database");
-                        continue;
-                    }
-
-                    // Cek In-Reply-To
-                    const inReplyToHeader = parsed.inReplyTo || (parsed.references || [])[0];
-                    const referenceId = normalizeMessageId(inReplyToHeader);
-
-                    console.log(`[DEBUG] -- In-Reply-To: ${referenceId}`);
-
-                    if (!referenceId || !sentMap.has(referenceId)) {
-                        console.log("[DEBUG] -- Skip: Bukan balasan dari sistem kita");
-                        continue;
-                    }
-
-                    const origin = sentMap.get(referenceId);
-                    const fromAddress = parsed.from?.text || parsed.from?.value?.[0]?.address || "";
-                    const fromName = parsed.from?.value?.[0]?.name || "";
-
+                    // Save Reply
                     const replyPayload = {
                         user_id,
-                        badan_publik_id: origin?.badan_publik_id,
-                        message_id: replyMessageId,
-                        in_reply_to: referenceId,
-                        thread_id: origin?.thread_id,
+                        badan_publik_id: originalEmail.badan_publik_id,
+                        message_id: messageId, // The ID of the reply email
+                        in_reply_to: inReplyTo, // The ID of the original email
+                        thread_id: null,
                         from_email: fromAddress,
                         from_name: fromName,
-                        subject: parsed.subject || "(Tidak ada subjek)",
+                        subject: subject || "(No Subject)",
                         message: (parsed.text || parsed.html || "").trim(),
                         received_at: parsed.date || new Date(),
                     };
 
-                    console.log("[DEBUG] -- Menyimpan ke database...");
                     await new Promise((resolve, reject) => {
-                        saveReply(replyPayload, (err) => {
+                        saveReply(replyPayload, (err, res) => {
                             if (err) {
-                                console.error("[DEBUG] -- Error Save DB:", err);
-                                return reject(err);
+                                console.error(`[INBOX] Error saving reply: ${err.message}`);
+                                resolve(null); 
+                            } else {
+                                resolve(res);
                             }
-                            console.log("[DEBUG] -- Berhasil disimpan!");
-                            resolve();
                         });
                     });
 
-                    existingSet.add(replyMessageId);
-                    savedReplies.push(replyPayload);
-                } catch (itemError) {
-                    console.error("[DEBUG] Error processing individual email:", itemError);
-                    // Lanjut ke email berikutnya
+                    // Update status of original email
+                    if (originalEmail.status !== 'replied') {
+                        await new Promise((resolve) => {
+                            updateEmailLogStatus(originalEmail.id, 'replied', resolve);
+                        });
+                        console.log(`[INBOX] Updated status to 'replied' for Email ID: ${originalEmail.id}`);
+                    }
+
+                    newRepliesCount++;
                 }
-            }
-        } catch (imapError) {
-            console.error("[DEBUG] Error IMAP Operation:", imapError);
-            throw imapError;
-        } finally {
-            if (connection) {
-                try {
-                    console.log("[DEBUG] Menutup koneksi IMAP...");
-                    connection.end();
-                } catch (e) {
-                    console.error("[DEBUG] Error closing connection:", e);
-                }
+
+            } catch (err) {
+                console.error(`[INBOX] Error processing message: ${err.message}`);
             }
         }
 
         clearTimeout(timeoutId);
-        console.log(`[DEBUG] Selesai! ${savedReplies.length} balasan baru disimpan.`);
-        res.json({ success: true, newReplies: savedReplies.length });
+        console.log(`[INBOX] ========== REFRESH REPLIES END (${newRepliesCount} new) ==========\n`);
+        
+        res.json({
+            success: true,
+            newReplies: newRepliesCount,
+            message: `Berhasil menyegarkan. ${newRepliesCount} balasan baru ditemukan.`
+        });
 
     } catch (error) {
         clearTimeout(timeoutId);
-        console.error("[DEBUG] CRITICAL ERROR di refreshReplies:", error);
-        if (!res.headersSent) {
-            res.status(500).json({
-                success: false,
-                message: error.message || "Gagal menyegarkan balasan",
-            });
+        console.error(`[INBOX] ❌ Critical Error:`, error);
+        res.status(500).json({
+            success: false,
+            message: "Gagal menyegarkan inbox: " + error.message,
+        });
+    } finally {
+        if (connection) {
+            try {
+                connection.end();
+            } catch (e) { /* ignore */ }
         }
     }
 };
+
+export default { listStoredReplies, listRepliesForSentEmails, refreshReplies };

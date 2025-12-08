@@ -7,28 +7,63 @@ const BadanPublik = db.define("badan_publik", {
         autoIncrement: true,
         primaryKey: true,
     },
+    // Mapped from 'Nama Badan Publik'
     name: {
-        type: DataTypes.STRING(255),
-        allowNull: false,
+        type: DataTypes.STRING(255), // Realistis: 31 char terlalu pendek
+        field: 'Nama Badan Publik',  // Menunjuk ke kolom asli di DB
+        allowNull: true,
     },
+    // Mapped from 'Kategori'
+    kategori: {
+        type: DataTypes.STRING(50),
+        field: 'Kategori',
+        allowNull: true,
+    },
+    // Mapped from 'Website'
+    website: {
+        type: DataTypes.STRING(255), // URL butuh space lebih dari 43 char
+        field: 'Website',
+        allowNull: true,
+    },
+    // Mapped from 'Pertanyaan'
+    pertanyaan: {
+        type: DataTypes.STRING(255), // 201 oke, tapi 255 standar
+        field: 'Pertanyaan',
+        allowNull: true,
+    },
+    // Mapped from 'Email'
     email: {
-        type: DataTypes.STRING(255),
+        type: DataTypes.STRING(100),
+        field: 'Email',
+        allowNull: true,
+        validate: {
+            isEmail: true // Tambahan validasi biar data bersih
+        }
     },
-    phone: {
+    // Mapped from 'Status'
+    status: {
         type: DataTypes.STRING(20),
+        field: 'Status',
+        defaultValue: 'Pending' // Saran: kasih default value
     },
-    sent_count: {
-        type: DataTypes.INTEGER,
-        defaultValue: 0,
-    },
+    // Mapped from 'Thread Id'
+    threadId: {
+        type: DataTypes.STRING(50),
+        field: 'Thread Id', // Perhatikan spasi di sini sesuai SQL kamu
+        allowNull: true,
+    }
 }, {
     freezeTableName: true,
-    timestamps: false,
+    timestamps: false, // Sesuai request, tidak ada created_at/updated_at
+    tableName: 'data'  // PENTING: Jika nama tabel di DB kamu adalah 'data', ganti ini. 
+    // Jika tetap 'badan_publik', hapus baris ini.
 });
 
-db.sync().then(() => console.log("✓ Database synced model or table badan_publik"));
+// Sinkronisasi (Hati-hati: alter: true akan mengubah struktur tabel DB jika beda)
+// db.sync({ alter: true }).then(() => console.log("✓ Database synced model badan_publik"));
 
-// Export helper functions for controllers
+// --- Helper Functions (Legacy Callback Style) ---
+
 export const getBadanPublik = (callback) => {
     BadanPublik.findAll()
         .then((data) => callback(null, data))

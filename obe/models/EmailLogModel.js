@@ -34,6 +34,12 @@ const EmailLog = db.define("email_logs", {
     sent_at: {
         type: DataTypes.DATE,
     },
+    // Kolom penting untuk menyimpan Message-ID dari email provider (Gmail/SMTP)
+    // Digunakan untuk mencocokkan balasan (In-Reply-To) di InboxController
+    message_id: {
+        type: DataTypes.STRING(255),
+        allowNull: true,
+    },
 }, {
     freezeTableName: true,
     timestamps: true,
@@ -45,9 +51,38 @@ db.sync().then(() => console.log("✓ Database synced model or table email_logs"
 
 // Export helper functions for controllers
 export const saveEmailLog = (logData, callback) => {
-    EmailLog.create(logData)
-        .then((log) => callback(null, log))
-        .catch((err) => callback(err, null));
+    // Validate required fields
+    if (!logData.user_id || !logData.badan_publik_id) {
+        const error = new Error(`Missing required fields: user_id=${logData.user_id}, badan_publik_id=${logData.badan_publik_id}`);
+        console.error('saveEmailLog validation error:', error.message);
+        return callback(error, null);
+    }
+
+    // Ensure integers
+    const sanitizedData = {
+        user_id: parseInt(logData.user_id),
+        badan_publik_id: parseInt(logData.badan_publik_id),
+        recipient_email: logData.recipient_email || null,
+        recipient_name: logData.recipient_name || null,
+        email_subject: logData.email_subject || null,
+        email_body: logData.email_body || null,
+        status: logData.status || 'pending',
+        sent_at: logData.sent_at || null,
+        // Simpan message_id agar bisa mendeteksi balasan otomatis
+        message_id: logData.message_id || null,
+    };
+
+    console.log('saveEmailLog - Saving data:', sanitizedData);
+
+    EmailLog.create(sanitizedData)
+        .then((log) => {
+            console.log('saveEmailLog - Success! ID:', log.id);
+            callback(null, log);
+        })
+        .catch((err) => {
+            console.error('saveEmailLog - Database error:', err.message);
+            callback(err, null);
+        });
 };
 
 export const getEmailLogsByUser = (userId, limit = 50, offset = 0, callback) => {
